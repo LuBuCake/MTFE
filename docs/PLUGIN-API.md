@@ -42,7 +42,7 @@ Both are `extern "C"` (`__cdecl`), so the names are exported undecorated. Plugin
 
 ## Settings Menu (`MTFE_INTERFACE_MENU`)
 
-Each plugin gets one page in **Options > MODS** (main menu), drawn by the game's own menu (keyboard, controller, mouse). The MODS list shows the pages in plugin load order.
+Each plugin gets one page in **Extras > Special Settings > MODS** (main menu), drawn by the game's own menu (keyboard, controller, mouse). The MODS list shows the pages in plugin load order.
 
 | Function | |
 | --- | --- |

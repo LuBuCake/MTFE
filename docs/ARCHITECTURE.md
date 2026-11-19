@@ -47,7 +47,7 @@ Placement: an `.arc` by its file name (RE5's 1,243 archive names are unique); an
 
 ## Settings Menu
 
-Options > MODS adds a 9th row to the game's option category list (`uIdOption00`) with chain-keeping hooks on its per-frame function and on the calls it makes for cursor movement, the title, the help line, the hovered row, the click and the mouse pointer look. Our page is an instance of the game's KEYBOARD/MOUSE page (`uIdOption05`, layout `top31`: a 7-row scrolling list) with a cloned vtable whose init and per-frame slots are ours; it draws with the menu's own helpers and activates the page's mouse hit maps every frame, so it behaves like the game's pages.
+Extras > Special Settings > MODS adds a 9th row to the game's option category list (`uIdOption00`) with chain-keeping hooks on its per-frame function and on the calls it makes for cursor movement, the title, the help line, the hovered row, the click and the mouse pointer look. Our page is an instance of the game's KEYBOARD/MOUSE page (`uIdOption05`, layout `top31`: a 7-row scrolling list) with a cloned vtable whose init and per-frame slots are ours; it draws with the menu's own helpers and activates the page's mouse hit maps every frame, so it behaves like the game's pages.
 
 ## Launcher.exe
 

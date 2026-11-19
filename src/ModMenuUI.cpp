@@ -12,8 +12,10 @@
     along with MTFE. If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Options > MODS: the row added to the game's category list (uIdOption00) and our own page (a uIdOption05 instance,
-// KEYBOARD/MOUSE layout top31, with a cloned vtable whose init/move are ours). Everything is drawn with the menu's own
+// Extras > Special Settings > MODS: the row added to the Special Settings list (uIdStartUp0c, next to COSTUME SELECT /
+// FILTER SELECT / INFINITE AMMO) and our own page (a uIdOption05 instance, KEYBOARD/MOUSE layout top31, with a
+// cloned vtable whose init/move are ours). Until 2026-11-19 the row was in Options, where a 9th row went past the
+// list's background. Everything is drawn with the menu's own
 // helpers, so it looks and behaves like the game's pages (keyboard, pad, mouse, green pointer).
 // Reverse engineering and every address: CommonLibRE5/docs/MENU.md.
 
@@ -61,8 +63,6 @@ namespace ModMenu
         }
 
         constexpr std::uint32_t kRight = 0x20020, kLeft = 0x80080; // pad repeat masks of the option pages
-        constexpr int kModsRow = 8;                                // our row in the category list (game rows 0..7)
-        constexpr int kModsRowY = 494;                             // the list's rows are 43 px apart (150..451)
         constexpr int kVisible = 7;                                // rows of the top31 layout
         constexpr int kRowsY[kVisible] = { 150, 200, 250, 300, 350, 400, 450 };
         constexpr int kLabelX = 0x17C, kValueX = 0x33E, kCenterX = 0x280, kHelpY = 0x20D;
@@ -98,10 +98,31 @@ namespace ModMenu
         {
             This<void>(Function, Unit);
         }
+        // The mouse belongs to the keyboard player (sPad+0x614). A screen of the title menus has no owner (+0x34 < 0:
+        // Special Settings reads the pads as (-1, -1), any pad), and so has our page opened from it: mouse too then.
         bool KeyboardPlayer(void* Unit)
         {
-            return At<int>(Unit, 0x34) == At<int>(Global<void>(M->SPad), 0x614);
+            const int Owner = At<int>(Unit, 0x34);
+            return Owner < 0 || Owner == At<int>(Global<void>(M->SPad), 0x614);
         }
+        // The game's mouse helpers of a page (hit maps 0xA22DF0, row under the pointer 0xA22FC0, release 0xA22E70)
+        // only run when +0x34 IS the keyboard player. A page without owner (-1, any pad) lends it to them while they
+        // run; the pads keep reading -1.
+        struct MouseOwner
+        {
+            void* Unit;
+            int Saved;
+            explicit MouseOwner(void* Target) : Unit(Target), Saved(At<int>(Target, 0x34))
+            {
+                if (Saved < 0)
+                {
+                    At<int>(Unit, 0x34) = At<int>(Global<void>(M->SPad), 0x614);
+                }
+            }
+            ~MouseOwner() { At<int>(Unit, 0x34) = Saved; }
+            MouseOwner(const MouseOwner&) = delete;
+            MouseOwner& operator=(const MouseOwner&) = delete;
+        };
 
         // ---- our page ------------------------------------------------------------------------------------------
         std::array<std::uintptr_t, 16> PageVtbl{}; // [0] = RTTI locator, [1..15] = slots
@@ -237,9 +258,12 @@ namespace ModMenu
             const bool Mouse = KeyboardPlayer(Unit);
 
             // hit maps of the KEYBOARD/MOUSE page: rows (0..6 + footer buttons), the two arrow columns, the wheel
-            This<void>(M->SetHitMap, Unit, 5u, M->PageRowsMap, 0u);
-            This<void>(M->SetHitMap, Unit, 5u, M->PageArrowsMap, 1u);
-            This<void>(M->SetHitMap, Unit, 5u, 0u, 2u);
+            {
+                MouseOwner Lend(Unit);
+                This<void>(M->SetHitMap, Unit, 5u, M->PageRowsMap, 0u);
+                This<void>(M->SetHitMap, Unit, 5u, M->PageArrowsMap, 1u);
+                This<void>(M->SetHitMap, Unit, 5u, 0u, 2u);
+            }
 
             const int Count = RowCount(AllPages);
             if (Mouse)
@@ -261,7 +285,10 @@ namespace ModMenu
             }
             if (Cancel)
             {
-                This<void>(M->ReleaseMouse, Unit);
+                {
+                    MouseOwner Lend(Unit);
+                    This<void>(M->ReleaseMouse, Unit);
+                }
                 if (UiState.Current)
                 {
                     BackToList(Unit);
@@ -298,6 +325,7 @@ namespace ModMenu
                     Next = std::clamp(Next, UiState.Scroll, UiState.Scroll + kVisible - 1);
                 }
                 const int Visible = std::min(kVisible, Count - UiState.Scroll);
+                MouseOwner Lend(Unit);
                 const int Hovered = This<int>(M->MouseRow, Unit, Next - UiState.Scroll, Visible, 0, 0);
                 if (Hovered >= 0 && Hovered < Visible && Selectable(AllPages, UiState.Scroll + Hovered))
                 {
@@ -554,27 +582,43 @@ namespace ModMenu
             return Unit;
         }
 
-        // ---- the MODS row in the category list -----------------------------------------------------------------
-        std::uintptr_t ListMoveOriginal = 0, CursorMoveOriginal = 0, DrawTitleOriginal = 0, DrawHelpOriginal = 0, MouseRowOriginal = 0, MouseClickOriginal = 0, CursorIdleOriginal = 0;
+        // ---- the MODS row in Extras > Special Settings ------------------------------------------------------------
+        // uIdStartUp0c (layout top10): 3 rows, COSTUME SELECT / FILTER SELECT / INFINITE AMMO, at y 250/300/350 (table
+        // 0x1131ED4, highlights sel_02/04/06 at 0x1131EC8), cursor +0x48, unlocked rows +0x188 (3, or 7 once the save
+        // unlocks infinite ammo), help at y 525. MODS is a 4th row at y 400, still inside the panel; confirming it fades
+        // the screen out, opens our page and fades back in (the game's rows go to other screens instead, 0xA177E0).
+        constexpr int kSpecialRows = 3;
+        constexpr int kModsRow = 3;
+        constexpr int kModsRowY = 400;
+        constexpr int kModsSel = 6;           // highlight of row 2 (sel_06), moved to our row while it is selected
+        constexpr int kSelRow = 2, kSelRowY = 350; // ...and moved back to row 2 (INFINITE AMMO) while that one is
+        constexpr std::uint32_t kRowMsg = 0x4E1; // INFINITE AMMO: sizes the highlight
+        // Our states of the screen (the game's switch has no such case: its Move only draws then).
+        constexpr std::uint8_t kFadeOut = 0x70, kFadingOut = 0x71, kOpen = 0x72, kWait = 0x73, kFadingIn = 0x74;
 
-        struct ListMouse
+        std::uintptr_t SpecialMoveOriginal = 0, SpecialCursorOriginal = 0, SpecialMouseRowOriginal = 0, SpecialClickOriginal = 0;
+        std::uintptr_t SpecialTitleOriginal = 0, SpecialHelpOriginal = 0, CursorIdleOriginal = 0;
+        void* ModsPage = nullptr;      // the page opened from Special Settings (the screen is too small to hold it)
+        void* CurrentScreen = nullptr; // the Special Settings screen running its Move (the mouse hooks get sId as this)
+
+        struct RowMouse
         {
             bool Over = false, Click = false, Green = false, PrevDown = false;
-            void* List = nullptr;
         } MouseState;
 
-        bool IsMainMenuList(void* List)
-        {
-            return At<int>(List, 0x18C) == 0;
-        }
-
-        // The list's hit map only has rows 0..7: MODS = row 7's rectangle moved down by (row 7 - row 6).
-        void UpdateListMouse(void* List)
+        // Special Settings' hit map has rows 0..2 only: MODS = row 2's rectangle moved down by (row 2 - row 1).
+        void UpdateMouse(void* Screen)
         {
             auto* Pad = Global<void>(M->SPad);
             auto* Sid = Global<void>(M->SId);
             auto* Mouse = Global<void>(M->SMouse);
-            if (!Pad || !Sid || !Mouse || At<int>(List, 0x34) != At<int>(Pad, 0x614))
+            static bool Logged = false;
+            if (Pad && !Logged)
+            {
+                Logged = true; // diagnosis of 2026-11-19: the screen's owner against the keyboard player
+                Log::Info("mod menu: Special Settings owner +0x34 = {}, keyboard player = {}", At<int>(Screen, 0x34), At<int>(Pad, 0x614));
+            }
+            if (!Pad || !Sid || !Mouse || !KeyboardPlayer(Screen))
             {
                 return;
             }
@@ -593,101 +637,128 @@ namespace ModMenu
                 return;
             }
             auto* Map = At<void**>(Sid, 0x318)[MapIndex];
-            if (!Map || At<std::uint32_t>(Map, 0xC) < 8)
+            if (!Map || At<std::uint32_t>(Map, 0xC) < static_cast<std::uint32_t>(kSpecialRows))
             {
                 return;
             }
             auto** Rects = At<void**>(Map, 0x18);
-            const auto* R6 = reinterpret_cast<const int*>(reinterpret_cast<std::uintptr_t>(Rects[6]) + 4);
-            const auto* R7 = reinterpret_cast<const int*>(reinterpret_cast<std::uintptr_t>(Rects[7]) + 4);
-            const int Dy = R7[1] - R6[1];
-            const int X0 = R7[0] + At<int>(Sid, 0x50), X1 = R7[2] + At<int>(Sid, 0x50);
-            const int Y0 = R7[1] + Dy + At<int>(Sid, 0x54), Y1 = R7[3] + Dy + At<int>(Sid, 0x54);
+            const auto* R1 = reinterpret_cast<const int*>(reinterpret_cast<std::uintptr_t>(Rects[kSpecialRows - 2]) + 4);
+            const auto* R2 = reinterpret_cast<const int*>(reinterpret_cast<std::uintptr_t>(Rects[kSpecialRows - 1]) + 4);
+            const int Dy = R2[1] - R1[1];
+            const int X0 = R2[0] + At<int>(Sid, 0x50), X1 = R2[2] + At<int>(Sid, 0x50);
+            const int Y0 = R2[1] + Dy + At<int>(Sid, 0x54), Y1 = R2[3] + Dy + At<int>(Sid, 0x54);
             const int Px = At<int>(Sid, 0x2E0), Py = At<int>(Sid, 0x2E4); // pointer in menu space (sId, this frame)
             MouseState.Over = Px >= X0 && Px < X1 && Py >= Y0 && Py < Y1;
             MouseState.Click = MouseState.Over && Pressed;
             MouseState.Green = MouseState.Over; // consumed by the next sId update (it runs after the menu units)
         }
 
-        // state 6 with the cursor on MODS: open our page and wait for it, as the game does for its pages (0xA27AB0).
-        void OpenModsPage(void* List)
+        // MODS confirmed: our page, as the game opens its option pages (0xA27AB0), around a fade of the screen.
+        bool RunModsStates(void* Screen)
         {
-            auto& Sub = At<std::uint8_t>(List, 0x15);
-            auto& Child = At<void*>(List, 0x19C);
-            switch (Sub)
+            auto& State = At<std::uint8_t>(Screen, 0x14);
+            switch (State)
             {
-            case 0:
-                if (At<void*>(List, 0x128) && This<bool>(M->TransitionBusy, At<void*>(List, 0x128)))
+            case 3: // the confirm blink (the game would now go to screen 0xB + row)
+                At<float>(Screen, 0x44) -= At<float>(Global<void>(M->STimer), 0x28);
+                if (At<float>(Screen, 0x44) <= 0.0f)
                 {
-                    return;
+                    At<std::uint8_t>(Screen, 0x3D) = 0;
+                    State = kFadeOut;
                 }
-                if ((Child = CreatePage()) != nullptr)
+                return true;
+            case kFadeOut:
+                This<void>(M->FadeOutStart, Screen, 0);
+                State = kFadingOut;
+                return true;
+            case kFadingOut:
+                if (This<bool>(M->FadeOutStep, Screen, 0))
                 {
-                    At<std::uint32_t>(Child, 4) |= 0x2000;
-                    At<std::uint32_t>(Child, 0x34) = At<std::uint32_t>(List, 0x34);
-                    At<void*>(Child, 0x128) = At<void*>(List, 0x128);
-                    This<void>(M->AddUnit, Global<void>(M->SUnit), 0x1Bu, Child);
+                    State = kOpen;
                 }
-                ++Sub;
-                break;
-            case 1:
-                if (Child && !At<bool>(Child, 0x3C))
+                return true;
+            case kOpen:
+                if (At<void*>(Screen, 0x128) && This<bool>(M->TransitionBusy, At<void*>(Screen, 0x128)))
                 {
-                    return;
+                    return true;
                 }
-                if (Child)
+                if ((ModsPage = CreatePage()) != nullptr)
                 {
-                    At<std::uint32_t>(Child, 4) &= ~0x2000u;
-                    This<void>((*reinterpret_cast<std::uint32_t**>(Child))[12], Child); // kill
-                    Child = nullptr;
+                    At<std::uint32_t>(ModsPage, 4) |= 0x2000;
+                    At<std::uint32_t>(ModsPage, 0x34) = At<std::uint32_t>(Screen, 0x34);
+                    At<void*>(ModsPage, 0x128) = At<void*>(Screen, 0x128);
+                    This<void>(M->AddUnit, Global<void>(M->SUnit), 0x1Bu, ModsPage);
                 }
-                ++Sub;
-                break;
+                State = kWait;
+                return true;
+            case kWait:
+                if (ModsPage && !At<bool>(ModsPage, 0x3C))
+                {
+                    return true;
+                }
+                if (ModsPage)
+                {
+                    At<std::uint32_t>(ModsPage, 4) &= ~0x2000u;
+                    This<void>((*reinterpret_cast<std::uint32_t**>(ModsPage))[12], ModsPage); // kill
+                    ModsPage = nullptr;
+                }
+                This<void>(M->FadeInStart, Screen, 0);
+                State = kFadingIn;
+                return true;
+            case kFadingIn:
+                if (This<bool>(M->FadeInStep, Screen, 0))
+                {
+                    State = 2;
+                }
+                return true;
             default:
-                ++At<std::uint8_t>(List, 0x14); // -> 7: back to the list (fade in again)
-                break;
+                return false;
             }
         }
 
-        void __fastcall ListMove(void* List)
+        void __fastcall SpecialMove(void* Screen)
         {
             MouseState.Over = MouseState.Click = MouseState.Green = false;
-            MouseState.List = List;
-            if (IsMainMenuList(List))
+            CurrentScreen = Screen;
+            const auto Before = At<std::uint8_t>(Screen, 0x14);
+            const bool OnMods = At<int>(Screen, 0x48) == kModsRow;
+            if ((Before == 3 && OnMods) || (Before >= kFadeOut && Before <= kFadingIn))
             {
-                const auto State = At<std::uint8_t>(List, 0x14);
-                if (State == 6 && At<int>(List, 0x48) == kModsRow)
-                {
-                    OpenModsPage(List);
-                    return;
-                }
-                if (State == 2 && At<int>(List, 0x190) == 0)
-                {
-                    UpdateListMouse(List);
-                }
+                RunModsStates(Screen);
+                This<void>(M->SpecialDraw, Screen);
+                return;
             }
-            reinterpret_cast<void(__thiscall*)(void*)>(ListMoveOriginal)(List);
-        }
-
-        std::uint32_t __fastcall CursorMoveHook(void* List, void*, std::uint32_t Trigger, std::uint32_t Repeat, std::uint32_t CurrentRow, int Count)
-        {
-            if (IsMainMenuList(List) && Count == 8)
+            if (Before == 2)
             {
-                Count = 9;
+                UpdateMouse(Screen);
             }
-            return reinterpret_cast<std::uint32_t(__stdcall*)(std::uint32_t, std::uint32_t, std::uint32_t, int)>(CursorMoveOriginal)(Trigger, Repeat, CurrentRow, Count);
+            reinterpret_cast<void(__thiscall*)(void*)>(SpecialMoveOriginal)(Screen);
+            if (Before == 0)
+            {
+                At<std::uint32_t>(Screen, 0x188) |= 1u << kModsRow; // state 0 set the unlocked rows (3 / 7): MODS always is
+            }
         }
 
-        int __fastcall MouseRowHook(void* List, void*, int CurrentRow, int Count, int Start, int Layer)
+        // cursor by keys/pad: one row more
+        std::uint32_t __fastcall SpecialCursorHook(void* Screen, void*, std::uint32_t Cursor, int Count)
         {
-            const int Row = reinterpret_cast<int(__thiscall*)(void*, int, int, int, int)>(MouseRowOriginal)(List, CurrentRow, Count, Start, Layer);
-            return IsMainMenuList(List) && MouseState.Over ? kModsRow : Row;
+            return reinterpret_cast<std::uint32_t(__thiscall*)(void*, std::uint32_t, int)>(SpecialCursorOriginal)(Screen, Cursor,
+                                                                                                                   Count == kSpecialRows ? Count + 1 : Count);
         }
 
-        bool __fastcall MouseClickHook(void* Sid, void*, int First, int Last, int Kind, int Layer)
+        // row under the mouse (this = sId): MODS when the pointer is over it
+        int __fastcall SpecialMouseRowHook(void* Sid, void*, int Cursor, int Count, int Start, int Layer)
         {
-            const bool Clicked = reinterpret_cast<bool(__thiscall*)(void*, int, int, int, int)>(MouseClickOriginal)(Sid, First, Last, Kind, Layer);
-            return Clicked || (MouseState.Click && MouseState.List && At<int>(MouseState.List, 0x48) == kModsRow);
+            const int Row = reinterpret_cast<int(__thiscall*)(void*, int, int, int, int)>(SpecialMouseRowOriginal)(Sid, Cursor, Count, Start, Layer);
+            return MouseState.Over ? kModsRow : Row;
+        }
+
+        // mouse confirm (this = sId): a click on MODS while it is the selected row
+        bool __fastcall SpecialClickHook(void* Sid, void*, int Kind, int A, int B)
+        {
+            const bool Clicked = reinterpret_cast<bool(__thiscall*)(void*, int, int, int)>(SpecialClickOriginal)(Sid, Kind, A, B);
+            // the click is tested before the row under the mouse in Move: only once MODS is the selected row
+            return Clicked || (MouseState.Click && CurrentScreen && At<int>(CurrentScreen, 0x48) == kModsRow);
         }
 
         void __fastcall CursorIdleHook(void* Cursor, void*, std::uint32_t Look)
@@ -700,33 +771,38 @@ namespace ModMenu
             reinterpret_cast<void(__thiscall*)(void*, std::uint32_t)>(CursorIdleOriginal)(Cursor, Look);
         }
 
-        void __fastcall DrawTitleHook(void* List, void*, std::uint32_t Message)
+        // after the title (drawn every frame the screen draws): the MODS row, styled like the game's rows
+        void __fastcall SpecialTitleHook(void* Screen, void*, std::uint32_t Message)
         {
-            reinterpret_cast<void(__thiscall*)(void*, std::uint32_t)>(DrawTitleOriginal)(List, Message);
-            if (!IsMainMenuList(List))
+            reinterpret_cast<void(__thiscall*)(void*, std::uint32_t)>(SpecialTitleOriginal)(Screen, Message);
+            const bool Selected = At<int>(Screen, 0x48) == kModsRow;
+            auto Color = RowColor(Screen, Selected);
+            if (Selected && At<std::uint8_t>(Screen, 0x3D))
             {
-                return;
+                const auto Blink = This<std::uint32_t>(M->Blink, Screen, At<float>(Screen, 0x44)) & 0xFF;
+                Color = (((Color >> 24) * Blink / 0xFF) << 24) | (Color & 0xFFFFFF);
             }
-            const bool Selected = At<int>(List, 0x48) == kModsRow;
-            if (Selected && At<std::uint8_t>(List, 0x3D) && At<int>(List, 0x190) == 0)
+            DrawText(Screen, "MODS", kCenterX, kModsRowY, Color, RowScale(Screen, Selected));
+            // Highlight with a Y writes it into the element for good (the game's rows pass -1: "where it is"), so
+            // sel_06 stays at y 400 after MODS was selected. Row 2 puts it back before the game draws its rows.
+            if (Selected)
             {
-                This<void>(M->Blink, List, At<float>(List, 0x44));
+                This<void>(M->Highlight, Screen, kModsSel, kRowMsg, true, kModsRowY);
             }
-            DrawText(List, "MODS", kCenterX, kModsRowY, RowColor(List, Selected), RowScale(List, Selected));
-            if (At<int>(List, 0x190) == 0)
+            else if (At<int>(Screen, 0x48) == kSelRow)
             {
-                This<void>(M->Highlight, List, 1, 0x532, Selected, kModsRowY);
+                This<void>(M->Highlight, Screen, kModsSel, kRowMsg, true, kSelRowY);
             }
         }
 
-        void __fastcall DrawHelpHook(void* List, void*, std::uint32_t Message, int Y)
+        void __fastcall SpecialHelpHook(void* Screen, void*, std::uint32_t Message, int Y)
         {
-            if (IsMainMenuList(List) && At<int>(List, 0x48) == kModsRow)
+            if (At<int>(Screen, 0x48) == kModsRow)
             {
-                DrawText(List, "Settings of the installed mods.", kCenterX, Y, White(List), 1.0f);
+                DrawText(Screen, "Settings of the installed mods.", kCenterX, Y, White(Screen), 1.0f);
                 return;
             }
-            reinterpret_cast<void(__thiscall*)(void*, std::uint32_t, int)>(DrawHelpOriginal)(List, Message, Y);
+            reinterpret_cast<void(__thiscall*)(void*, std::uint32_t, int)>(SpecialHelpOriginal)(Screen, Message, Y);
         }
 
         bool CallIs(std::uint32_t Site, std::uint32_t Target)
@@ -743,11 +819,11 @@ namespace ModMenu
         {
             std::uint32_t Site, Target;
         } Calls[] = {
-            { M->CallCursorMove, M->CursorMove },
-            { M->CallDrawTitle, 0x00A17D40 },
-            { M->CallDrawHelp, 0x00A17CF0 },
-            { M->CallMouseRow, M->MouseRow },
-            { M->CallMouseClick, M->MouseClicked },
+            { M->CallSpecialCursor, M->SpecialCursor },
+            { M->CallSpecialMouseRow, M->SpecialMouseRow },
+            { M->CallSpecialClick, M->SpecialClick },
+            { M->CallSpecialTitle, M->DrawTitle },
+            { M->CallSpecialHelp, M->DrawHelp },
             { M->CallCursorIdle, 0x007ADC00 },
         };
         for (const auto& Call : Calls)
@@ -755,7 +831,7 @@ namespace ModMenu
             const auto* Code = reinterpret_cast<const std::uint8_t*>(Call.Site);
             if (Code[0] != 0xE8)
             {
-                Log::Error("mod menu: {:08X} is not a call - Options > MODS disabled", Call.Site);
+                Log::Error("mod menu: {:08X} is not a call - Special Settings > MODS disabled", Call.Site);
                 return;
             }
             if (!CallIs(Call.Site, Call.Target))
@@ -763,18 +839,23 @@ namespace ModMenu
                 Log::Warn("mod menu: call at {:08X} already hooked by someone else - chaining", Call.Site);
             }
         }
+        if (reinterpret_cast<const std::uint32_t*>(M->SpecialVtbl)[6] == 0)
+        {
+            Log::Error("mod menu: Special Settings vtable not found - MODS disabled");
+            return;
+        }
 
         std::memcpy(PageVtbl.data(), reinterpret_cast<const std::uintptr_t*>(M->PageVtbl) - 1, sizeof(PageVtbl));
         PageVtbl[1 + 5] = reinterpret_cast<std::uintptr_t>(&PageInit);
         PageVtbl[1 + 6] = reinterpret_cast<std::uintptr_t>(&PageMove);
 
-        ListMoveOriginal = Hook::WriteVFunc(M->ListVtbl, 6, reinterpret_cast<std::uintptr_t>(&ListMove));
-        CursorMoveOriginal = Hook::WriteCall5(M->CallCursorMove, reinterpret_cast<std::uintptr_t>(&CursorMoveHook));
-        DrawTitleOriginal = Hook::WriteCall5(M->CallDrawTitle, reinterpret_cast<std::uintptr_t>(&DrawTitleHook));
-        DrawHelpOriginal = Hook::WriteCall5(M->CallDrawHelp, reinterpret_cast<std::uintptr_t>(&DrawHelpHook));
-        MouseRowOriginal = Hook::WriteCall5(M->CallMouseRow, reinterpret_cast<std::uintptr_t>(&MouseRowHook));
-        MouseClickOriginal = Hook::WriteCall5(M->CallMouseClick, reinterpret_cast<std::uintptr_t>(&MouseClickHook));
+        SpecialMoveOriginal = Hook::WriteVFunc(M->SpecialVtbl, 6, reinterpret_cast<std::uintptr_t>(&SpecialMove));
+        SpecialCursorOriginal = Hook::WriteCall5(M->CallSpecialCursor, reinterpret_cast<std::uintptr_t>(&SpecialCursorHook));
+        SpecialMouseRowOriginal = Hook::WriteCall5(M->CallSpecialMouseRow, reinterpret_cast<std::uintptr_t>(&SpecialMouseRowHook));
+        SpecialClickOriginal = Hook::WriteCall5(M->CallSpecialClick, reinterpret_cast<std::uintptr_t>(&SpecialClickHook));
+        SpecialTitleOriginal = Hook::WriteCall5(M->CallSpecialTitle, reinterpret_cast<std::uintptr_t>(&SpecialTitleHook));
+        SpecialHelpOriginal = Hook::WriteCall5(M->CallSpecialHelp, reinterpret_cast<std::uintptr_t>(&SpecialHelpHook));
         CursorIdleOriginal = Hook::WriteCall5(M->CallCursorIdle, reinterpret_cast<std::uintptr_t>(&CursorIdleHook));
-        Log::Info("mod menu: Options > MODS on");
+        Log::Info("mod menu: Extras > Special Settings > MODS on");
     }
 }

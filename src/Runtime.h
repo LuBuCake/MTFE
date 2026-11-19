@@ -19,13 +19,16 @@
 
 namespace Runtime
 {
-    // Options menu (src/ModMenuUI.cpp; see CommonLibRE5/docs/MENU.md). All helpers take the page as `this`.
+    // Mod menu (src/ModMenuUI.cpp; see CommonLibRE5/docs/MENU.md). All helpers take the screen as `this`.
     struct MenuAddresses
     {
-        // category list (uIdOption00) and the page we clone (uIdOption05, KEYBOARD/MOUSE)
-        std::uint32_t ListVtbl, PageVtbl, PageDTI, PageInit;
-        std::uint32_t CallCursorMove, CallDrawTitle, CallDrawHelp, CallMouseRow, CallMouseClick; // inside the list
-        std::uint32_t CallCursorIdle;                                                            // sId update: call sCursor::SetLook(0)
+        // Extras > Special Settings (uIdStartUp0c: COSTUME SELECT / FILTER SELECT / INFINITE AMMO) and the page we clone
+        // (uIdOption05, KEYBOARD/MOUSE)
+        std::uint32_t SpecialVtbl, SpecialDraw, PageVtbl, PageDTI, PageInit;
+        // inside Special Settings: cursor (keys), row under the mouse, mouse confirm (Move); title and help (draw)
+        std::uint32_t CallSpecialCursor, CallSpecialMouseRow, CallSpecialClick, CallSpecialTitle, CallSpecialHelp;
+        std::uint32_t CallCursorIdle; // sId update: call sCursor::SetLook(0)
+        std::uint32_t SpecialCursor, SpecialMouseRow, SpecialClick, DrawTitle, DrawHelp; // their targets
         // helpers
         std::uint32_t DrawString, DrawMessage, RowColor, RowScale, Highlight, Arrows, ShowElement, ButtonHint, Blink;
         std::uint32_t FadeInStart, FadeInStep, FadeOutStart, FadeOutStep, FadeLerp;

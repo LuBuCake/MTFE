@@ -9,7 +9,7 @@ MTFE ships as a `dinput8.dll` proxy. It waits for the game to unpack itself (the
 
 * **Plugin loader** that enters at the game's real entry point, after the Enigma Protector has unpacked the code. Messages at plugin load, before `WinMain` (all engine types registered) and on the first frame (every game system created); tasks and per-frame callbacks on the game's main thread.
 * **Mod folders**, like the GTA San Andreas modloader: drop a mod in `MTFE\Mods\<any name>\` and the game reads its files instead of its own, without replacing a single original file. An `.arc` is matched by its name, anywhere in the mod folder; any other file by its game path (`pawn\`, `stage\`, `effect\`..., a leading `nativePC_MT\` is fine). A loose file also wins over the same file inside an `.arc`, original or from another mod. The mod folder that sorts last wins a conflict; a folder whose name starts with `-` is disabled.
-* **Mod settings menu**: plugins get their own page in the game's **Options > MODS**, drawn by the game's own menu (keyboard, controller and mouse), with toggles, lists, numbers, hotkeys and buttons. Values are saved in `MTFE\Config\<plugin>.ini`, never in the game save.
+* **Mod settings menu**: plugins get their own page in the game's **Extras > Special Settings > MODS**, drawn by the game's own menu (keyboard, controller and mouse), with toggles, lists, numbers, hotkeys and buttons. Values are saved in `MTFE\Config\<plugin>.ini`, never in the game save.
 * **Launcher fix**: Capcom's `Launcher.exe` waits for a key forever on Windows 10/11 after starting the game, so Steam keeps the game as running after it closes. MTFE closes it.
 * Old plugin DLLs in `<game>\plugins` (the earlier RE5 Plugin Loader) still load, now after the game is unpacked.
 
@@ -36,7 +36,7 @@ On an unknown executable, plugins still load but the game hooks, the mod folders
 | `[Loader] bCloseLauncher` | 1 | close the stuck `Launcher.exe` |
 | `[Resources] bModFolders` | 1 | mod folders in `MTFE\Mods` |
 | `[Resources] bLogModFiles` | 1 | log every mod file that replaces an archive entry |
-| `[Menu] bModsMenu` | 1 | Options > MODS |
+| `[Menu] bModsMenu` | 1 | Extras > Special Settings > MODS |
 | `[Debug] bConsole` | 0 | console window with the log |
 
 ## Writing Plugins
@@ -76,7 +76,7 @@ src/Hook.*            API hook (hot-patch), call/vtable rewrites (they return th
 src/Runtime.*         game version detection and per-version addresses
 src/PluginManager.*   plugin loading, messages, tasks, interfaces
 src/ModFolders.*      mod folders (MTFE\Mods)
-src/ModMenu*.*        Options > MODS and the menu API
+src/ModMenu*.*        Extras > Special Settings > MODS and the menu API
 src/LauncherFix.*     closes the stuck Launcher.exe
 src/Log.*             MTFE\Logs\mtfe.log
 dist/MTFE/MTFE.ini    default settings

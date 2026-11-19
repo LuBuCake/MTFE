@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-// Mod settings hub: Options > MODS in the game's own menu (src/ModMenuUI.cpp draws it), with the pages and controls
+// Mod settings hub: Extras > Special Settings > MODS in the game's own menu (src/ModMenuUI.cpp draws it), with the pages and controls
 // that plugins register through MTFEMenuInterface (this file). See docs/PLUGIN-API.md, "Menu".
 namespace ModMenu
 {
